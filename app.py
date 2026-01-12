@@ -2,13 +2,12 @@ import streamlit as st
 import pandas as pd
 from hitung_terjun import hitung_bangunan_terjun
 from cek_stabilitas import cek_stabilitas
-# UPDATE IMPORT: Menggunakan fungsi baru untuk gambar bertingkat
 from draw_section import gambar_potongan_bertingkat
 
 # --- 1. KONFIGURASI HALAMAN ---
 st.set_page_config(
     page_title="Desain Bangunan Terjun",
-    layout="wide", # Layout wide agar gambar terlihat jelas
+    layout="wide",
     initial_sidebar_state="expanded"
 )
 
@@ -16,81 +15,81 @@ st.title("🌊 Desain Bangunan Terjun & Kolam Olak")
 st.markdown("---")
 st.write("""
 Aplikasi perhitungan hidrolis bangunan terjun tegak (vertical drop) tipe bertingkat. 
-Menggunakan pendekatan **KP-04** dan standar **USBR**.
+Termasuk analisis hidrolika (**KP-04**), dimensi kolam olak (**USBR**), dan kontrol stabilitas struktur.
 """)
 
 # --- 2. INPUT DATA (SIDEBAR) ---
 with st.sidebar:
-    st.header("🔢 Input Parameter")
-    
-    Q = st.number_input(
-        "Debit Rencana (Q) m³/det", 
-        min_value=0.01, value=1.50, step=0.05
-    )
-    
-    B = st.number_input(
-        "Lebar Saluran (B) m", 
-        min_value=0.5, value=2.0, step=0.1
-    )
-    
-    H_total = st.number_input(
-        "Total Beda Tinggi (H) m", 
-        min_value=0.5, value=3.5, step=0.1
-    )
-    
-    H_max = st.number_input(
-        "Tinggi Terjun Maksimum (m)", 
-        min_value=0.3, value=1.5, step=0.1,
-        help="Maksimal tinggi jatuh per satu trap"
-    )
+    st.header("1️⃣ Parameter Hidrolis")
+    Q = st.number_input("Debit Rencana (Q) m³/det", min_value=0.01, value=1.50, step=0.05)
+    B = st.number_input("Lebar Saluran (B) m", min_value=0.5, value=2.0, step=0.1)
+    H_total = st.number_input("Total Beda Tinggi (H) m", min_value=0.5, value=3.5, step=0.1)
+    H_max = st.number_input("Tinggi Terjun Maks (m)", min_value=0.3, value=1.5, step=0.1)
 
-    tombol_hitung = st.button("🚀 Hitung & Gambar Desain", type="primary")
+    st.markdown("---")
+    st.header("2️⃣ Parameter Struktur")
+    t_lantai = st.number_input("Tebal Lantai Beton (m)", min_value=0.2, value=0.5, step=0.05)
+    qa_tanah = st.number_input("Daya Dukung Tanah (kN/m²)", min_value=10.0, value=150.0, step=10.0)
+
+    st.markdown("---")
+    tombol_hitung = st.button("🚀 Hitung & Analisis", type="primary")
 
 # --- 3. LOGIKA UTAMA ---
 if tombol_hitung:
     try:
-        # A. Panggil Fungsi Perhitungan
+        # A. HITUNGAN HIDROLIS
         hasil = hitung_bangunan_terjun(Q, B, H_total, H_max)
-
-        # B. Tampilkan Ringkasan (Metrics)
-        st.subheader("📋 Ringkasan Desain")
-        col1, col2, col3, col4 = st.columns(4)
         
+        # B. TAMPILKAN RINGKASAN
+        st.subheader("📋 Ringkasan Desain Hidrolis")
+        col1, col2, col3, col4 = st.columns(4)
         with col1: st.metric("Jumlah Trap", f"{hasil['Jumlah Terjun']} Buah")
         with col2: st.metric("Tipe USBR", hasil["Tipe Kolam"])
         with col3: st.metric("Tinggi Jatuh/Trap", f"{hasil['Tinggi Terjun per Tingkat (m)']} m")
-        with col4: st.metric("Panjang Lantai", f"{hasil['Panjang Total Lantai (Ld+Lj) (m)']} m")
-st.subheader("3️⃣ Cek Stabilitas Struktur")
+        with col4: st.metric("Panjang Lantai Total", f"{hasil['Panjang Total Lantai (Ld+Lj) (m)']} m")
 
-st.sidebar.header("Parameter Struktur")
-t = st.sidebar.number_input("Tebal Lantai Kolam (m)", value=0.5)
-qa = st.sidebar.number_input("Daya Dukung Tanah Izin (kN/m²)", value=150.0)
+        # C. CEK STABILITAS STRUKTUR
+        st.markdown("---")
+        st.subheader("🏗️ Cek Stabilitas (Guling, Geser, Uplift)")
+        
+        # Mapping data dari hasil hidrolis ke fungsi stabilitas
+        # Perhatikan: Kita mengambil nilai dari dictionary 'hasil'
+        hasil_stabil = cek_stabilitas(
+            B = B,
+            L = hasil["Panjang Loncatan Lj (m)"], # Panjang lantai kolam efektif
+            t = t_lantai,
+            y1 = hasil["Kedalaman di Kaki (y1)"],
+            y2 = hasil["Kedalaman Konjugasi (y2)"],
+            qa = qa_tanah
+        )
 
-stabil = cek_stabilitas(
-    B=B,
-    L=usbr["Panjang Kolam"],
-    t=t,
-    y1=y1,
-    y2=usbr["y2"],
-    qa=qa
-)
+        # Tampilkan hasil stabilitas dengan indikator warna
+        c1, c2, c3 = st.columns(3)
+        
+        # Geser
+        status_geser = "✅ AMAN" if hasil_stabil["Aman Geser"] else "❌ TIDAK AMAN"
+        c1.metric("Kontrol Geser (SF > 1.5)", f"{hasil_stabil['FS Geser']}", status_geser)
+        
+        # Guling
+        status_guling = "✅ AMAN" if hasil_stabil["Aman Guling"] else "❌ TIDAK AMAN"
+        c2.metric("Kontrol Guling (SF > 2.0)", f"{hasil_stabil['FS Guling']}", status_guling)
+        
+        # Daya Dukung
+        status_tanah = "✅ AMAN" if hasil_stabil["Aman Daya Dukung"] else "❌ TIDAK AMAN"
+        val_tanah = hasil_stabil['Tekanan Tanah (kN/m2)']
+        c3.metric(f"Tekanan Tanah (< {qa_tanah})", f"{val_tanah} kN/m²", status_tanah)
 
-for k, v in stabil.items():
-    if isinstance(v, bool):
-        st.write(f"**{k}** : {'✅ AMAN' if v else '❌ TIDAK AMAN'}")
-    else:
-        st.write(f"**{k}** : {v}")
+        # Expander untuk detail gaya
+        with st.expander("🔍 Lihat Detail Gaya-Gaya Struktur"):
+            st.json(hasil_stabil)
 
-
-        # C. Visualisasi Potongan (Gambar Teknik BERTINGKAT)
+        # D. VISUALISASI GAMBAR
         st.markdown("---")
         st.subheader("📐 Visualisasi Profil Memanjang")
-        
         try:
-            # UPDATE PEMANGGILAN FUNGSI (Sesuai draw_section.py baru)
             fig_section = gambar_potongan_bertingkat(
                 n_terjun = hasil["Jumlah Terjun"],
-                H_total  = H_total, # Parameter baru
+                H_total  = H_total,
                 H_drop   = hasil["Tinggi Terjun per Tingkat (m)"],
                 L_drop   = hasil["Panjang Jatuhan Ld (m)"],
                 L_kolam  = hasil["Panjang Loncatan Lj (m)"],
@@ -101,24 +100,17 @@ for k, v in stabil.items():
             )
             st.pyplot(fig_section, use_container_width=True)
         except Exception as e_img:
-            st.error(f"Gagal memuat gambar: {e_img}")
+            st.warning(f"Gagal memuat gambar: {e_img}")
 
-        # D. Tabel Detail
+        # E. TABEL DETAIL HIDROLIS
         st.markdown("---")
-        st.subheader("📊 Detail Parameter Hidrolis")
-        df_hasil = pd.DataFrame(list(hasil.items()), columns=["Parameter", "Nilai"])
-        st.table(df_hasil)
+        with st.expander("📊 Lihat Detail Angka Hidrolis", expanded=False):
+            df_hasil = pd.DataFrame(list(hasil.items()), columns=["Parameter", "Nilai"])
+            st.table(df_hasil)
 
     except Exception as e:
-        # Menangkap error perhitungan (seperti error 'y2' di screenshot Anda)
         st.error(f"Terjadi kesalahan sistem: {e}")
-        st.warning("""
-        **Solusi Error:**
-        Jika errornya 'y2', pastikan file `hitung_terjun.py` sudah diperbarui.
-        Cari baris: `data_usbr["y2"]`
-        Ubah menjadi: `data_usbr.get("y2 (m)", 0)`
-        """)
+        st.info("Tips: Pastikan file `hitung_terjun.py` dan `cek_stabilitas.py` sudah benar.")
 
 else:
-    st.info("👈 Silakan masukkan data di sidebar kiri, lalu tekan tombol **Hitung**.")
-
+    st.info("👈 Masukkan parameter di sidebar kiri, lalu tekan tombol **Hitung & Analisis**.")
