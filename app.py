@@ -1,29 +1,39 @@
 import streamlit as st
 from hitung_terjun import hitung_bangunan_terjun
+from usbr_stilling import hitung_usbr
+from draw_section import gambar_potongan
 
-st.set_page_config(page_title="Bangunan Terjun Bertingkat", layout="centered")
+st.set_page_config(page_title="Bangunan Terjun + Kolam Olak USBR", layout="wide")
 
-st.title("🏗️ Aplikasi Bang explain Bangunan Terjun Bertingkat")
-st.write("Perhitungan awal bangunan terjun irigasi (pendekatan KP)")
+st.title("🏗️ Aplikasi Bangunan Terjun Bertingkat + Kolam Olak USBR")
 
-st.header("🔢 Input Data")
+st.sidebar.header("Input Data Hidrolika")
+Q = st.sidebar.number_input("Debit Q (m³/det)", value=1.5)
+B = st.sidebar.number_input("Lebar Saluran B (m)", value=2.0)
+H_total = st.sidebar.number_input("Total Tinggi Terjun (m)", value=3.0)
+H_max = st.sidebar.number_input("Tinggi Maks Terjun/Tingkat (m)", value=1.0)
 
-Q = st.number_input("Debit (Q) m³/det", min_value=0.01, value=1.0)
-B = st.number_input("Lebar Saluran (B) m", min_value=0.5, value=2.0)
-H_total = st.number_input("Total Tinggi Terjun (m)", min_value=0.5, value=3.0)
-H_max = st.number_input("Tinggi Maks Terjun per Tingkat (m)", min_value=0.3, value=1.0)
+if st.sidebar.button("🔍 Hitung Lengkap"):
+    terjun = hitung_bangunan_terjun(Q, B, H_total, H_max)
 
-if st.button("🔍 Hitung Bangunan Terjun"):
-    hasil = hitung_bangunan_terjun(Q, B, H_total, H_max)
-
-    st.success("✅ Hasil Perhitungan")
-
-    for k, v in hasil.items():
+    st.subheader("1️⃣ Bangunan Terjun Bertingkat")
+    for k, v in terjun.items():
         st.write(f"**{k}** : {v}")
 
-    st.info("""
-    Catatan:
-    - Perhitungan ini untuk **tahap perencanaan awal**
-    - Belum termasuk cek stabilitas struktur
-    - Belum termasuk desain detail kolam olak (USBR lengkap)
-    """)
+    y1 = terjun["Kedalaman Kritis yk (m)"]
+
+    usbr = hitung_usbr(Q, B, y1)
+
+    st.subheader("2️⃣ Desain Kolam Olak USBR")
+    for k, v in usbr.items():
+        st.write(f"**{k}** : {v}")
+
+    fig = gambar_potongan(
+        y1,
+        usbr["y2"],
+        usbr["Panjang Kolam"],
+        usbr["End Sill"]
+    )
+    st.pyplot(fig)
+
+    st.success("✅ Desain terjun + kolam olak selesai")
