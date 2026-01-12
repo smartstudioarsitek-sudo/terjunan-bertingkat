@@ -3,7 +3,7 @@ import pandas as pd
 from hitung_terjun import hitung_bangunan_terjun
 from cek_stabilitas import cek_stabilitas
 from draw_section import gambar_potongan_bertingkat
-from export_utils import generate_excel, generate_dxf # Import fungsi baru
+from export_utils import generate_excel, generate_dxf
 
 # --- 1. KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="Desain Bangunan Terjun", layout="wide")
@@ -14,14 +14,15 @@ st.markdown("---")
 # --- 2. INPUT DATA (SIDEBAR) ---
 with st.sidebar:
     st.header("1️⃣ Parameter Hidrolis")
-    Q = st.number_input("Debit (Q) m³/det", 0.01, 1.50, 0.05)
-    B = st.number_input("Lebar (B) m", 0.5, 2.0, 0.1)
-    H_total = st.number_input("Total Tinggi (H) m", 0.5, 3.5, 0.1)
-    H_max = st.number_input("Tinggi Max/Trap (m)", 0.3, 1.5, 0.1)
+    # Perbaikan: Menggunakan keyword arguments (value=..., step=...) agar aman
+    Q = st.number_input("Debit (Q) m³/det", min_value=0.01, value=1.50, step=0.05)
+    B = st.number_input("Lebar (B) m", min_value=0.5, value=2.0, step=0.1)
+    H_total = st.number_input("Total Tinggi (H) m", min_value=0.5, value=3.5, step=0.1)
+    H_max = st.number_input("Tinggi Max/Trap (m)", min_value=0.3, value=1.5, step=0.1)
 
     st.header("2️⃣ Parameter Struktur")
-    t_lantai = st.number_input("Tebal Lantai (m)", 0.2, 0.5, 0.05)
-    qa_tanah = st.number_input("Daya Dukung (kN/m²)", 10.0, 150.0, 10.0)
+    t_lantai = st.number_input("Tebal Lantai (m)", min_value=0.2, value=0.5, step=0.05)
+    qa_tanah = st.number_input("Daya Dukung (kN/m²)", min_value=10.0, value=150.0, step=10.0)
     
     st.markdown("---")
     tombol_hitung = st.button("🚀 Hitung & Analisis", type="primary")
@@ -59,11 +60,17 @@ if tombol_hitung:
             sc2.metric("Daya Dukung Tanah", f"{stabil['Tekanan Tanah (kN/m2)']} kN/m²", lbl_tanah)
 
             st.subheader("Visualisasi")
+            # Pastikan urutan parameter sesuai dengan fungsi di draw_section.py
             fig = gambar_potongan_bertingkat(
-                hasil["Jumlah Terjun"], H_total, hasil["Tinggi Terjun per Tingkat (m)"],
-                hasil["Panjang Jatuhan Ld (m)"], hasil["Panjang Loncatan Lj (m)"],
-                hasil["Kedalaman di Kaki (y1)"], hasil["Kedalaman Konjugasi (y2)"],
-                hasil["Tinggi End Sill (m)"], hasil["Kedalaman Kritis yc (m)"]
+                n_terjun=hasil["Jumlah Terjun"], 
+                H_total=H_total, 
+                H_drop=hasil["Tinggi Terjun per Tingkat (m)"],
+                L_drop=hasil["Panjang Jatuhan Ld (m)"], 
+                L_kolam=hasil["Panjang Loncatan Lj (m)"],
+                y1=hasil["Kedalaman di Kaki (y1)"], 
+                y2=hasil["Kedalaman Konjugasi (y2)"],
+                hs=hasil["Tinggi End Sill (m)"], 
+                yc=hasil["Kedalaman Kritis yc (m)"]
             )
             st.pyplot(fig, use_container_width=True)
 
@@ -113,5 +120,7 @@ if tombol_hitung:
 
     except Exception as e:
         st.error(f"Terjadi kesalahan: {e}")
+        # Tambahan info debug untuk Anda
+        st.info("Jika masih error, pastikan semua file (export_utils.py, requirements.txt, dll) sudah diupdate.")
 else:
     st.info("👈 Masukkan data & tekan tombol Hitung untuk melihat hasil.")
