@@ -1,48 +1,45 @@
 import streamlit as st
 import pandas as pd
 from hitung_terjun import hitung_bangunan_terjun
+from draw_section import gambar_potongan_detail
 
-# Konfigurasi Halaman
+# --- 1. KONFIGURASI HALAMAN ---
 st.set_page_config(
-    page_title="Bangunan Terjun Bertingkat",
+    page_title="Desain Bangunan Terjun",
     layout="centered",
     initial_sidebar_state="expanded"
 )
 
-# Judul Aplikasi
 st.title("🌊 Desain Bangunan Terjun & Kolam Olak")
 st.markdown("---")
 st.write("""
 Aplikasi perhitungan hidrolis bangunan terjun tegak (vertical drop) untuk irigasi. 
-Menggunakan pendekatan **KP-04** dan standar **USBR** untuk kolam olak.
+Menggunakan pendekatan **KP-04** untuk hidrolika terjunan dan standar **USBR** untuk dimensi kolam olak.
 """)
 
-# --- Sidebar untuk Input Data ---
+# --- 2. INPUT DATA (SIDEBAR) ---
 with st.sidebar:
-    st.header("🔢 Input Parameter Desain")
+    st.header("🔢 Input Parameter")
     
     Q = st.number_input(
         "Debit Rencana (Q) m³/det", 
         min_value=0.01, 
         value=1.50,
-        step=0.05,
-        help="Debit desain saluran"
+        step=0.05
     )
     
     B = st.number_input(
         "Lebar Saluran (B) m", 
         min_value=0.5, 
         value=2.0,
-        step=0.1,
-        help="Lebar saluran (asumsi persegi)"
+        step=0.1
     )
     
     H_total = st.number_input(
         "Total Beda Tinggi (H) m", 
         min_value=0.5, 
         value=3.5,
-        step=0.1,
-        help="Total ketinggian dari hulu ke hilir"
+        step=0.1
     )
     
     H_max = st.number_input(
@@ -50,20 +47,20 @@ with st.sidebar:
         min_value=0.3, 
         value=1.5,
         step=0.1,
-        help="Batasan tinggi jatuh per satu trap"
+        help="Maksimal tinggi jatuh per satu trap"
     )
 
     tombol_hitung = st.button("🚀 Hitung Desain", type="primary")
 
-# --- Logika Utama ---
+# --- 3. LOGIKA UTAMA ---
 if tombol_hitung:
-    # Memanggil fungsi perhitungan (pastikan hitung_terjun.py sudah diupdate)
     try:
+        # A. Panggil Fungsi Perhitungan
         hasil = hitung_bangunan_terjun(Q, B, H_total, H_max)
 
         st.success("✅ Perhitungan Selesai")
         
-        # 1. Ringkasan Utama (Metrics)
+        # B. Tampilkan Ringkasan (Metrics)
         st.subheader("📋 Ringkasan Desain")
         col1, col2, col3, col4 = st.columns(4)
         
@@ -76,27 +73,44 @@ if tombol_hitung:
         with col4:
             st.metric("Panjang Lantai", f"{hasil['Panjang Total Lantai (Ld+Lj) (m)']} m")
 
-        # 2. Detail Hidrolis (Tabel)
+        # C. Visualisasi Potongan (Gambar Teknik)
+        st.markdown("---")
+        st.subheader("📐 Visualisasi Potongan Melintang")
+        
+        try:
+            # Memanggil fungsi gambar dari draw_section.py
+            fig_section = gambar_potongan_detail(
+                H_drop  = hasil["Tinggi Terjun per Tingkat (m)"],
+                L_drop  = hasil["Panjang Jatuhan Ld (m)"],
+                L_kolam = hasil["Panjang Loncatan Lj (m)"],
+                y1      = hasil["Kedalaman di Kaki (y1)"],
+                y2      = hasil["Kedalaman Konjugasi (y2)"],
+                hs      = hasil["Tinggi End Sill (m)"],
+                yc      = hasil["Kedalaman Kritis yc (m)"]
+            )
+            st.pyplot(fig_section)
+        except Exception as e_img:
+            st.warning(f"Gagal memuat gambar: {e_img}")
+
+        # D. Tabel Detail Parameter
+        st.markdown("---")
         st.subheader("📊 Detail Parameter Hidrolis")
         
-        # Konversi dict ke DataFrame agar tampilan lebih cantik
+        # Konversi hasil ke DataFrame agar rapi
         df_hasil = pd.DataFrame(list(hasil.items()), columns=["Parameter", "Nilai"])
-        
-        # Format angka di tabel agar rapi
         st.table(df_hasil)
 
-        # 3. Catatan Teknis
+        # E. Catatan Teknis
         st.info("""
         **Catatan Desain:**
-        - **Panjang Lantai Total** = Panjang lintasan jatuhan air ($L_d$) + Panjang loncatan hidrolis ($L_j$).
-        - **Tipe USBR** ditentukan berdasarkan Bilangan Froude ($Fr$) di kaki terjunan.
-        - Pastikan elevasi muka air hilir (Tail Water Level) mencukupi untuk mendukung terjadinya loncatan air ($y_2$).
+        1. **Panjang Lantai Total** ($L_{total}$) adalah penjumlahan dari Panjang Lintasan Jatuhan ($L_d$) + Panjang Kolam Olak ($L_j$).
+        2. **Tipe USBR** dipilih otomatis berdasarkan Bilangan Froude ($Fr$) dan Kecepatan Aliran ($V_1$).
+        3. Visualisasi di atas adalah skema potongan per satu tingkat terjunan.
         """)
 
     except Exception as e:
-        st.error(f"Terjadi kesalahan dalam perhitungan: {e}")
-        st.warning("Pastikan Anda sudah mengupdate file `hitung_terjun.py` dengan kode revisi sebelumnya.")
+        st.error(f"Terjadi kesalahan sistem: {e}")
+        st.warning("Pastikan file `hitung_terjun.py` dan `draw_section.py` sudah diupdate dengan kode terbaru.")
 
 else:
-    # Tampilan awal sebelum tombol ditekan
-    st.info("👈 Masukkan data di sidebar kiri, lalu tekan tombol **Hitung Desain**.")
+    st.info("👈 Silakan masukkan data di sidebar kiri, lalu tekan tombol **Hitung Desain**.")
