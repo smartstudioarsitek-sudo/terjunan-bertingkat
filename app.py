@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from hitung_terjun import hitung_bangunan_terjun
+from cek_stabilitas import cek_stabilitas
 # UPDATE IMPORT: Menggunakan fungsi baru untuk gambar bertingkat
 from draw_section import gambar_potongan_bertingkat
 
@@ -59,6 +60,27 @@ if tombol_hitung:
         with col2: st.metric("Tipe USBR", hasil["Tipe Kolam"])
         with col3: st.metric("Tinggi Jatuh/Trap", f"{hasil['Tinggi Terjun per Tingkat (m)']} m")
         with col4: st.metric("Panjang Lantai", f"{hasil['Panjang Total Lantai (Ld+Lj) (m)']} m")
+st.subheader("3️⃣ Cek Stabilitas Struktur")
+
+st.sidebar.header("Parameter Struktur")
+t = st.sidebar.number_input("Tebal Lantai Kolam (m)", value=0.5)
+qa = st.sidebar.number_input("Daya Dukung Tanah Izin (kN/m²)", value=150.0)
+
+stabil = cek_stabilitas(
+    B=B,
+    L=usbr["Panjang Kolam"],
+    t=t,
+    y1=y1,
+    y2=usbr["y2"],
+    qa=qa
+)
+
+for k, v in stabil.items():
+    if isinstance(v, bool):
+        st.write(f"**{k}** : {'✅ AMAN' if v else '❌ TIDAK AMAN'}")
+    else:
+        st.write(f"**{k}** : {v}")
+
 
         # C. Visualisasi Potongan (Gambar Teknik BERTINGKAT)
         st.markdown("---")
@@ -99,3 +121,4 @@ if tombol_hitung:
 
 else:
     st.info("👈 Silakan masukkan data di sidebar kiri, lalu tekan tombol **Hitung**.")
+
