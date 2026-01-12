@@ -1,6 +1,6 @@
 import numpy as np
-# Pastikan file usbr_stilling.py ada di folder yang sama
-from usbr_stilling import hitung_usbr 
+# Kita masukkan logika USBR langsung di sini untuk optimasi penuh
+# agar bisa memilih yang PALING PENDEK
 
 def hitung_bangunan_terjun(
     Q,
@@ -10,58 +10,69 @@ def hitung_bangunan_terjun(
     g=9.81
 ):
     """
-    Perhitungan bangunan terjun bertingkat dengan integrasi USBR
-    sesuai kaidah hidrolika (Bernoulli + Momentum).
+    Perhitungan bangunan terjun bertingkat dengan OPTIMASI PANJANG MINIMUM.
+    Menggunakan pendekatan USBR III (gigi) atau Minimum Impact Length.
     """
 
     # 1. Tentukan Geometri Terjun
     n_terjun = int(np.ceil(H_total / H_max_tiap_terjun))
-    # Hindari pembagian dengan nol jika n_terjun 0 (safety code)
     if n_terjun == 0: n_terjun = 1
-        
-    H_tiap = H_total / n_terjun  # Tinggi jatuh per step (Z)
+    H_tiap = H_total / n_terjun
 
-    # 2. Hitung Kondisi di Ambang (Critical Flow)
+    # 2. Hitung Kondisi di Ambang
     q = Q / B
     yk = (q**2 / g) ** (1/3)  # Critical depth
     
-    # 3. Hitung Kondisi di Kaki Terjun (Sebelum Loncatan / Toe)
-    # Menggunakan Persamaan Energi (Bernoulli):
-    # E_hulu + Z = E_hilir
-    # (yk + V_c^2/2g) + H_tiap = y1 + V1^2/2g
+    # 3. Hitung Kondisi di Kaki (Toe)
+    # Energi Hulu = H_tiap + 1.5 yk
+    E_total = H_tiap + (1.5 * yk)
     
-    # Energi total hulu dari dasar kolam olak
-    # E_critical = 1.5 * yk. Ditambah tinggi jatuh H_tiap.
-    E_total_hulu = H_tiap + (1.5 * yk) 
+    # Cari y1 (Iterasi cepat)
+    y1 = 0.1 * yk # tebakan awal
+    for _ in range(10):
+        v1 = q / y1
+        f_val = y1 + (v1**2)/(2*g) - E_total
+        df_val = 1 - (v1**2)/(g*y1)
+        y1_new = y1 - f_val/df_val
+        if abs(y1_new - y1) < 0.001: break
+        y1 = y1_new
     
-    # Mencari y1 (kedalaman superkritis) dengan pendekatan Velocity Head
-    # V1 mendekati sqrt(2*g * Head)
-    V1_approx = np.sqrt(2 * g * E_total_hulu) 
-    y1 = q / V1_approx
-    
-    # Iterasi sederhana untuk presisi y1 (opsional, tapi lebih akurat)
-    for _ in range(3):
-        V1 = q / y1
-        E_calc = y1 + (V1**2)/(2*g)
-        # Koreksi y1 berdasarkan selisih energi (metode Newton-Raphson sederhana)
-        diff = E_calc - E_total_hulu
-        if abs(diff) < 0.001: break
-        y1 = y1 - (diff / (1 - (V1**2)/(g*y1))) # Turunan dE/dy = 1 - Fr^2
-
-    # Recalculate V1 final
     V1 = q / y1
+    Fr1 = V1 / np.sqrt(g * y1)
     
-    # 4. Hitung Kolam Olak menggunakan logika USBR
-    # Memanggil fungsi dari file usbr_stilling.py
-    data_usbr = hitung_usbr(Q, B, y1, g)
+    # 4. Hitung y2 (Conjugate Depth)
+    y2 = 0.5 * y1 * (np.sqrt(1 + 8 * Fr1**2) - 1)
+
+    # --- 5. LOGIKA OPTIMASI "TERPENDEK" (SESUAI REQUEST) ---
     
-    # Panjang kolam total sebaiknya ditambah jarak jatuhan (drop length)
-    # Rumus Rand (1955) untuk jarak jatuhan Ld:
+    # Hitung Jarak Jatuhan (Drop Length) - Rumus Rand
+    # Ini adalah jarak minimal agar air tidak menimpa lantai beton terlalu ke ujung
     drop_number = (q**2) / (g * H_tiap**3)
     L_drop = 4.30 * H_tiap * (drop_number ** 0.27)
+
+    # Hitung Panjang Kolam (L_jump)
+    # KP-04 & USBR:
+    # USBR I/II (Polos) -> butuh L = 5 s.d 6 * y2 (PANJANG BANGET)
+    # USBR III (Gigi)   -> butuh L = 2.5 s.d 2.7 * y2 (PENDEK)
     
-    L_kolam_usbr = data_usbr["Panjang Kolam"]
-    L_total_per_step = L_drop + L_kolam_usbr
+    # KITA PAKSA PAKAI MODE TERPENDEK (ASUMSI PAKAI BLOK/GIGI JIKA PERLU)
+    # Jika Fr < 1.7 (Loncatan undular), tidak perlu kolam, cukup lantai lindung
+    if Fr1 < 1.7:
+        tipe_kolam = "Lantai Minim (Undular)"
+        L_jump = 2.0 * y2 # Sangat pendek, hanya untuk proteksi
+        hs = 0
+    else:
+        # Jika Fr tinggi, kita pakai rasio USBR III (paling efisien)
+        # Asumsinya: User akan memasang blok muka/gigi jika Fr > 4.5
+        tipe_kolam = "USBR III (Optimasi Pendek)"
+        L_jump = 2.5 * y2 # Rasio terpendek yang aman secara teknis
+        hs = 0.15 * y2 # Tinggi ambang (End Sill)
+        
+        # Safety check: Jangan sampai L_jump < 1 meter untuk kemudahan konstruksi
+        if L_jump < 1.0: L_jump = 1.0
+
+    # Total Panjang Lantai per Trap
+    L_total_per_step = L_drop + L_jump
 
     return {
         "Jumlah Terjun": n_terjun,
@@ -69,11 +80,10 @@ def hitung_bangunan_terjun(
         "Debit Persatuan Lebar (q)": round(q, 3),
         "Kedalaman Kritis yc (m)": round(yk, 3),
         "Kedalaman di Kaki (y1)": round(y1, 3),
-        # PERBAIKAN DI SINI: Menggunakan key "y2 (m)" sesuai usbr_stilling.py terbaru
-        "Kedalaman Konjugasi (y2)": data_usbr.get("y2 (m)", 0), 
-        "Tipe Kolam": data_usbr["Tipe USBR"],
+        "Kedalaman Konjugasi (y2)": round(y2, 3), # Sudah float, aman
+        "Tipe Kolam": tipe_kolam,
         "Panjang Jatuhan Ld (m)": round(L_drop, 3),
-        "Panjang Loncatan Lj (m)": round(L_kolam_usbr, 3),
+        "Panjang Loncatan Lj (m)": round(L_jump, 3),
         "Panjang Total Lantai (Ld+Lj) (m)": round(L_total_per_step, 3),
-        "Tinggi End Sill (m)": data_usbr["End Sill"]
+        "Tinggi End Sill (m)": round(hs, 3)
     }
