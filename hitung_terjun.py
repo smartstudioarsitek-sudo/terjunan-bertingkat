@@ -1,80 +1,101 @@
-import numpy as np
-from usbr_stilling import hitung_usbr 
+import streamlit as st
+import pandas as pd
+from hitung_terjun import hitung_bangunan_terjun
+from cek_stabilitas import cek_stabilitas
+from draw_section import gambar_potongan_bertingkat
+from draw_plan import gambar_denah_bertingkat
+from export_utils import generate_excel, generate_dxf
 
-def hitung_bangunan_terjun(
-    Q,
-    B,
-    H_total,
-    H_max_tiap_terjun,
-    mode_hemat=False, # <--- Parameter Baru
-    g=9.81
-):
-    # 1. Tentukan Geometri
-    n_terjun = int(np.ceil(H_total / H_max_tiap_terjun))
-    if n_terjun == 0: n_terjun = 1
-    H_tiap = H_total / n_terjun
+# --- 1. KONFIGURASI HALAMAN ---
+st.set_page_config(page_title="Desain Bangunan Terjun", layout="wide")
 
-    # 2. Hitung Hidrolika Dasar
-    q = Q / B
-    yk = (q**2 / g) ** (1/3)
-    
-    # 3. Hitung Energi & USBR (Standard)
-    # Asumsi conservative: V1 dihitung per step
-    E_total_hulu = H_tiap + (1.5 * yk)
-    V1 = np.sqrt(2 * g * H_tiap) 
-    y1 = q / V1
-    data_usbr = hitung_usbr(Q, B, y1, g)
-    
-    # Hitung Jarak Jatuhan (Drop Length)
-    drop_number = (q**2) / (g * H_tiap**3)
-    L_drop = 4.30 * H_tiap * (drop_number ** 0.27)
-    
-    # Hitung Panjang Kolam Full (Standard)
-    L_kolam_standard = data_usbr["Panjang Kolam"]
-    
-    # --- LOGIKA MODE HEMAT ---
-    # Syarat: User minta hemat DAN tinggi terjun < 1.0 meter (limit aman)
-    is_hemat_active = mode_hemat and (H_tiap <= 1.2)
-    
-    if is_hemat_active:
-        # Tipe: Cascaded Drop (Skimming/Step)
-        # Lantai Intermediate: Cukup menampung jatuhan air + sedikit safety
-        L_kolam_intermediate = 0.5 # Sangat pendek, cuma space transisi
-        
-        # Lantai Final (Bawah): Tetap harus kolam penuh
-        L_kolam_final = L_kolam_standard
-        
-        tipe_desain = "Mode Hemat (Kolam Hilir Saja)"
-    else:
-        # Tipe: Full Hydraulic Jump per Step
-        L_kolam_intermediate = L_kolam_standard
-        L_kolam_final = L_kolam_standard
-        
-        if mode_hemat and H_tiap > 1.2:
-            tipe_desain = "Standard (H terlalu tinggi untuk hemat)"
-        else:
-            tipe_desain = "Standard (Full USBR)"
+st.title("🌊 Desain Bangunan Terjun & Kolam Olak")
+st.markdown("---")
 
-    # Total Panjang Lantai
-    L_total_inter = L_drop + L_kolam_intermediate
-    L_total_final = L_drop + L_kolam_final
+# --- 2. INPUT DATA ---
+with st.sidebar:
+    st.header("1️⃣ Parameter Hidrolis")
+    Q = st.number_input("Debit (Q) m³/det", 0.01, 1.50, 0.05)
+    B = st.number_input("Lebar (B) m", 0.5, 2.0, 0.1)
+    H_total = st.number_input("Total Tinggi (H) m", 0.5, 3.5, 0.1)
+    H_max = st.number_input("Tinggi Max/Trap (m)", 0.3, 1.5, 0.1)
+    
+    # --- FITUR BARU: MODE HEMAT ---
+    st.markdown("---")
+    st.header("⚙️ Opsi Desain")
+    mode_hemat = st.checkbox("✅ Mode Hemat (Kolam di Bawah Saja)", value=True, 
+                             help="Jika dicentang & tinggi per trap < 1.2m, lantai trap tengah akan dibuat pendek tanpa kolam olak penuh.")
 
-    return {
-        "Jumlah Terjun": n_terjun,
-        "Tinggi Terjun per Tingkat (m)": round(H_tiap, 3),
-        "Debit Persatuan Lebar (q)": round(q, 3),
-        "Kedalaman Kritis yc (m)": round(yk, 3),
-        "Kedalaman di Kaki (y1)": round(y1, 3),
-        "Kedalaman Konjugasi (y2)": data_usbr.get("y2 (m)", 0),
-        "Tipe Kolam": data_usbr["Tipe USBR"],
-        "Desain Mode": tipe_desain,
+    st.markdown("---")
+    st.header("2️⃣ Parameter Struktur")
+    t_lantai = st.number_input("Tebal Lantai (m)", 0.2, 0.5, 0.05)
+    qa_tanah = st.number_input("Daya Dukung (kN/m²)", 10.0, 150.0, 10.0)
+    
+    st.markdown("---")
+    tombol_hitung = st.button("🚀 Hitung & Analisis", type="primary")
+
+# --- 3. LOGIKA UTAMA ---
+if tombol_hitung:
+    try:
+        # A. HITUNGAN (Pass parameter mode_hemat)
+        hasil = hitung_bangunan_terjun(Q, B, H_total, H_max, mode_hemat)
         
-        # DATA PENTING UNTUK GAMBAR
-        "Panjang Jatuhan Ld (m)": round(L_drop, 3),
-        "Panjang Kolam Intermediate (m)": round(L_kolam_intermediate, 3),
-        "Panjang Kolam Final (m)": round(L_kolam_final, 3),
-        "Panjang Lantai Intermediate (m)": round(L_total_inter, 3),
-        "Panjang Lantai Final (m)": round(L_total_final, 3),
+        # Ambil panjang lantai final untuk cek stabilitas (karena ini yang paling kritis)
+        L_stabil = hasil["Panjang Lantai Final (m)"] - hasil["Panjang Jatuhan Ld (m)"] # L_jump only
         
-        "Tinggi End Sill (m)": data_usbr["End Sill"]
-    }
+        stabil = cek_stabilitas(
+            B=B, L=L_stabil, t=t_lantai,
+            y1=hasil["Kedalaman di Kaki (y1)"], y2=hasil["Kedalaman Konjugasi (y2)"],
+            H_drop=hasil["Tinggi Terjun per Tingkat (m)"], qa=qa_tanah
+        )
+
+        # B. TABS
+        tab1, tab2, tab3 = st.tabs(["📊 Potongan & Visualisasi", "📐 Denah Situasi", "📑 Rekap"])
+
+        with tab1:
+            st.subheader(f"Hasil Desain: {hasil['Desain Mode']}")
+            
+            # Metric Comparison
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Panjang Lantai Tengah", f"{hasil['Panjang Lantai Intermediate (m)']} m")
+            c2.metric("Panjang Lantai Bawah", f"{hasil['Panjang Lantai Final (m)']} m", "Kolam Utama")
+            c3.metric("Jml Trap", hasil["Jumlah Terjun"])
+            c4.metric("Tinggi/Trap", f"{hasil['Tinggi Terjun per Tingkat (m)']} m")
+            
+            # Peringatan jika mode hemat aktif
+            if "Mode Hemat" in hasil["Desain Mode"]:
+                st.warning("⚠️ **Mode Hemat Aktif:** Lantai pada trap tengah hanya berfungsi sebagai pelindung jatuhan (bukan peredam energi). Pastikan beton lantai trap tengah memiliki mutu tinggi (K-225 ke atas) karena kecepatan air tinggi.")
+
+            fig_section = gambar_potongan_bertingkat(
+                hasil["Jumlah Terjun"], H_total, hasil["Tinggi Terjun per Tingkat (m)"],
+                hasil["Panjang Jatuhan Ld (m)"], 
+                hasil["Panjang Kolam Intermediate (m)"], # Parameter baru
+                hasil["Panjang Kolam Final (m)"],        # Parameter baru
+                hasil["Kedalaman di Kaki (y1)"], hasil["Kedalaman Konjugasi (y2)"],
+                hasil["Tinggi End Sill (m)"], hasil["Kedalaman Kritis yc (m)"]
+            )
+            st.pyplot(fig_section, use_container_width=True)
+
+        with tab2:
+            st.subheader("Denah Situasi")
+            fig_plan = gambar_denah_bertingkat(
+                hasil["Jumlah Terjun"], B, hasil["Panjang Jatuhan Ld (m)"],
+                hasil["Panjang Kolam Intermediate (m)"], # Parameter baru
+                hasil["Panjang Kolam Final (m)"]         # Parameter baru
+            )
+            st.pyplot(fig_plan, use_container_width=True)
+
+        with tab3:
+            st.header("📂 Rekapitulasi")
+            st.dataframe(pd.DataFrame(list(hasil.items()), columns=["Parameter", "Nilai"]), hide_index=True)
+            
+            # Export (Updated logic to handle new keys if needed inside export_utils, 
+            # but standard dict pass works mostly fine)
+            # Note: For strict Excel/CAD export, ensure export_utils supports the new keys if necessary.
+            # But standard iteration in export_utils will just print the new keys automatically.
+
+    except Exception as e:
+        st.error(f"Terjadi kesalahan: {e}")
+        st.info("Pastikan semua file (hitung_terjun, draw_section, draw_plan) sudah diupdate.")
+else:
+    st.info("👈 Tekan tombol Hitung untuk memulai.")
